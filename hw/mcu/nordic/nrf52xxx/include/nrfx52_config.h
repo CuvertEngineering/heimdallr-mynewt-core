@@ -55,7 +55,7 @@
 #endif
 
 #ifndef NRFX_PRS_ENABLED
-#define NRFX_PRS_ENABLED 0
+#define NRFX_PRS_ENABLED 1
 #endif
 
 #ifndef NRFX_QDEC_ENABLED
@@ -99,7 +99,7 @@
 #endif
 
 #ifndef NRFX_TWIS_ENABLED
-#define NRFX_TWIS_ENABLED 0
+#define NRFX_TWIS_ENABLED 1
 #endif
 
 #ifndef NRFX_TWI_ENABLED

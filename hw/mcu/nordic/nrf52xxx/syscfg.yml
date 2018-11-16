@@ -37,7 +37,7 @@ syscfg.defs:
             Specifies whether or not to enable DC/DC regulator. This requires
             external circuitry so is defined to be zero by default and
             expected to be overridden by the BSP.
-        value: 0
+        value: 1
 
 # MCU peripherals definitions
     I2C_0:
@@ -382,7 +382,7 @@ syscfg.defs:
 
     XTAL_RC:
         description: 'internal RC LF clock source'
-        value: 0
+        value: 1
         restrictions:
             - "!XTAL_32768_SYNTH"
             - "!XTAL_32768"

@@ -56,6 +56,7 @@ typedef struct
     uint8_t         drv_inst_idx; ///< Driver instance index.
 } nrfx_twis_t;
 
+#define NRFX_TWIS0_ENABLED 1
 enum {
 #if NRFX_CHECK(NRFX_TWIS0_ENABLED)
     NRFX_TWIS0_INST_IDX,

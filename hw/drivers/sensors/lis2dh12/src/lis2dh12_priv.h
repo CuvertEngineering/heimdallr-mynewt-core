@@ -26,6 +26,8 @@ extern "C" {
 
 #define LIS2DH12_ID                          0x33
 
+#define LIS2DH12_MULTIPLE_READ				(1 << 7)
+
 #define LIS2DH12_REG_STATUS_AUX              0x07
 #define LIS2DH12_STATUS_AUX_TOR          (1 << 6)
 #define LIS2DH12_STATUS_AUX_TDA          (1 << 2)

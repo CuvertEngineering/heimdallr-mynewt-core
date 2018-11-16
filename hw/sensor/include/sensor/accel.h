@@ -31,9 +31,9 @@ extern "C" {
  * All values are in MS^2
  */
 struct sensor_accel_data {
-    float sad_x;
-    float sad_y;
-    float sad_z;
+    int16_t sad_x;
+    int16_t sad_y;
+    int16_t sad_z;
 
     /* Validity */
     uint8_t sad_x_is_valid:1;

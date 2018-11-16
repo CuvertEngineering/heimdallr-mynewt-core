@@ -70,7 +70,7 @@ static struct hal_spi_settings mmc_settings = {
     .data_mode  = HAL_SPI_MODE0,
     /* XXX: MMC initialization accepts clocks in the range 100-400KHz */
     /* TODO: switch to high-speed aka 25MHz after initialization. */
-    .baudrate   = 100,
+    .baudrate   = 125,
     .word_size  = HAL_SPI_WORD_SIZE_8BIT,
 };
 
@@ -282,10 +282,11 @@ mmc_init(int spi_num, void *spi_cfg, int ss_pin)
         timeout = os_time_get() + OS_TICKS_PER_SEC;
         for (;;) {
             status = send_mmc_cmd(mmc, ACMD41, HCS);
+            console_printf("status:%d\n", status);
             if ((status & R_IDLE) == 0 || os_time_get() > timeout) {
                 break;
             }
-            os_time_delay(OS_TICKS_PER_SEC / 10);
+            os_time_delay(OS_TICKS_PER_SEC);
         }
 
         if (status) {

@@ -83,6 +83,7 @@ static const struct sensor_driver g_lis2dh12_sensor_driver = {
     .sd_clear_high_trigger_thresh = lis2dh12_sensor_clear_high_thresh
 };
 
+static uint8_t lis2dh12_full_scale = 0;
 /**
  * Read multiple length data from LIS2DH12 sensor over I2C
  *
@@ -98,7 +99,7 @@ lis2dh12_i2c_readlen(struct sensor_itf *itf, uint8_t addr, uint8_t *buffer,
                      uint8_t len)
 {
     int rc;
-    uint8_t payload[20] = { addr, 0, 0, 0, 0, 0, 0, 0,
+    uint8_t payload[20] = { addr | LIS2DH12_MULTIPLE_READ, 0, 0, 0, 0, 0, 0, 0,
                               0, 0, 0, 0, 0, 0, 0, 0,
                               0, 0, 0, 0};
 
@@ -512,7 +513,7 @@ lis2dh12_set_full_scale(struct sensor_itf *itf, uint8_t fs)
     if (rc) {
         goto err;
     }
-
+    lis2dh12_full_scale = fs;
     return 0;
 err:
     return rc;
@@ -814,12 +815,12 @@ lis2dh12_get_data(struct sensor_itf *itf, int16_t *x, int16_t *y, int16_t *z)
 
     *x = *y = *z = 0;
 
-    rc = lis2dh12_readlen(itf, LIS2DH12_REG_OUT_X_L, payload, 1);
-    rc |= lis2dh12_readlen(itf, LIS2DH12_REG_OUT_X_H, &payload[1], 1);
-    rc |= lis2dh12_readlen(itf, LIS2DH12_REG_OUT_Y_L, &payload[2], 1);
-    rc |= lis2dh12_readlen(itf, LIS2DH12_REG_OUT_Y_H, &payload[3], 1);
-    rc |= lis2dh12_readlen(itf, LIS2DH12_REG_OUT_Z_L, &payload[4], 1);
-    rc |= lis2dh12_readlen(itf, LIS2DH12_REG_OUT_Z_H, &payload[5], 1);
+    rc = lis2dh12_readlen(itf, LIS2DH12_REG_OUT_X_L, payload, 6);
+    // rc |= lis2dh12_readlen(itf, LIS2DH12_REG_OUT_X_H, &payload[1], 1);
+    // rc |= lis2dh12_readlen(itf, LIS2DH12_REG_OUT_Y_L, &payload[2], 1);
+    // rc |= lis2dh12_readlen(itf, LIS2DH12_REG_OUT_Y_H, &payload[3], 1);
+    // rc |= lis2dh12_readlen(itf, LIS2DH12_REG_OUT_Z_L, &payload[4], 1);
+    // rc |= lis2dh12_readlen(itf, LIS2DH12_REG_OUT_Z_H, &payload[5], 1);
     if (rc) {
         goto err;
     }
@@ -828,11 +829,11 @@ lis2dh12_get_data(struct sensor_itf *itf, int16_t *x, int16_t *y, int16_t *z)
     *y = payload[2] | (payload[3] << 8);
     *z = payload[4] | (payload[5] << 8);
 
-    rc = lis2dh12_get_full_scale(itf, &fs);
-    if (rc) {
-        goto err;
-    }
-
+    // rc = lis2dh12_get_full_scale(itf, &fs);
+    // if (rc) {
+    //     goto err;
+    // }
+    fs = lis2dh12_full_scale;
     if (fs == LIS2DH12_FS_2G) {
         fs = 2;
     } else if (fs == LIS2DH12_FS_4G) {
@@ -1034,9 +1035,12 @@ lis2dh12_sensor_read(struct sensor *sensor, sensor_type_t type,
     lis2dh12_calc_acc_ms2(y, &fy);
     lis2dh12_calc_acc_ms2(z, &fz);
 
-    sad.sad_x = fx;
-    sad.sad_y = fy;
-    sad.sad_z = fz;
+    lis2dh12_calc_acc_mg(fx, &(sad.sad_x));
+    lis2dh12_calc_acc_mg(fy, &(sad.sad_y));
+    lis2dh12_calc_acc_mg(fz, &(sad.sad_z));
+    // sad.sad_x = fx;
+    // sad.sad_y = fy;
+    // sad.sad_z = fz;
 
     sad.sad_x_is_valid = 1;
     sad.sad_y_is_valid = 1;
@@ -1739,7 +1743,7 @@ lis2dh12_config(struct lis2dh12 *lis2dh12, struct lis2dh12_cfg *cfg)
         goto err;
     }
 
-    rc = lis2dh12_set_op_mode(itf, LIS2DH12_OM_HIGH_RESOLUTION);
+    rc = lis2dh12_set_op_mode(itf, LIS2DH12_OM_LOW_POWER);
     if (rc) {
         goto err;
     }

@@ -43,12 +43,12 @@ console_printf(const char *fmt, ...)
 
     num_chars = 0;
 
-    if (console_get_ticks()) {
-        /* Prefix each line with a timestamp. */
-        if (!console_is_midline) {
-            num_chars += printf("%06lu ", (unsigned long)os_time_get());
-        }
-    }
+    // if (console_get_ticks()) {
+    //     /* Prefix each line with a timestamp. */
+    //     if (!console_is_midline) {
+    //         num_chars += printf("%06lu ", (unsigned long)os_time_get());
+    //     }
+    // }
 
     va_start(args, fmt);
     num_chars += vprintf(fmt, args);

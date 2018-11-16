@@ -30,7 +30,8 @@
  */
 
 #include <nrfx.h>
-
+#define NRFX_TWIS_ENABLED 1
+#define NRFX_TWIS0_ENABLED 1
 #if NRFX_CHECK(NRFX_TWIS_ENABLED)
 
 #if !(NRFX_CHECK(NRFX_TWIS0_ENABLED) || NRFX_CHECK(NRFX_TWIS1_ENABLED))
@@ -242,7 +243,7 @@ static inline void nrfx_twis_process_error(twis_control_block_t * p_cb,
 
     call_event_handler(p_cb, &evdata);
 }
-
+#define NRFX_TWIS_NO_SYNC_MODE 0
 static void nrfx_twis_state_machine(NRF_TWIS_Type *        p_reg,
                                     twis_control_block_t * p_cb)
 {
@@ -448,7 +449,7 @@ static inline void nrfx_twis_preprocess_status(nrfx_twis_t const * p_instance)
  *
  */
 
-
+#define NRFX_TWIS_ASSUME_INIT_AFTER_RESET_ONLY 1
 nrfx_err_t nrfx_twis_init(nrfx_twis_t const *        p_instance,
                           nrfx_twis_config_t const * p_config,
                           nrfx_twis_event_handler_t  event_handler)
@@ -517,6 +518,7 @@ nrfx_err_t nrfx_twis_init(nrfx_twis_t const *        p_instance,
     /* Peripheral interrupt configure
      * (note - interrupts still needs to be configured in INTEN register.
      * This is done in enable function) */
+    NVIC_SetVector(nrfx_get_irq_number(p_reg), irq_handlers[0]);
     NRFX_IRQ_PRIORITY_SET(nrfx_get_irq_number(p_reg),
                           p_config->interrupt_priority);
     NRFX_IRQ_ENABLE(nrfx_get_irq_number(p_reg));

@@ -293,9 +293,21 @@ hal_i2c_init(uint8_t i2c_num, void *usercfg)
     /* Resolve which GPIO port these pins belong to */
     scl_port = HAL_GPIO_PORT(cfg->scl_pin);
     sda_port = HAL_GPIO_PORT(cfg->sda_pin);
-
-    scl_port->PIN_CNF[cfg->scl_pin] = NRF52_SCL_PIN_CONF;
+#ifdef BSP_NRF52840
+    if (sda_port == NRF_P1) {
+        sda_port->PIN_CNF[cfg->sda_pin-32] = NRF52_SDA_PIN_CONF;
+    } else {
+        sda_port->PIN_CNF[cfg->sda_pin] = NRF52_SDA_PIN_CONF;
+    }
+    if (scl_port == NRF_P1) {
+        scl_port->PIN_CNF[cfg->scl_pin-32] = NRF52_SCL_PIN_CONF;
+    } else {
+        scl_port->PIN_CNF[cfg->scl_pin] = NRF52_SCL_PIN_CONF;
+    }
+#else
     sda_port->PIN_CNF[cfg->sda_pin] = NRF52_SDA_PIN_CONF;
+    scl_port->PIN_CNF[cfg->scl_pin] = NRF52_SCL_PIN_CONF;
+#endif
 
     regs->PSELSCL = cfg->scl_pin;
     regs->PSELSDA = cfg->sda_pin;

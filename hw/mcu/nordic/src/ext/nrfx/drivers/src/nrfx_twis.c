@@ -488,6 +488,7 @@ nrfx_err_t nrfx_twis_init(nrfx_twis_t const *        p_instance,
                          NRFX_LOG_ERROR_STRING_GET(err_code));
         return err_code;
     }
+    NVIC_SetVector(nrfx_get_irq_number(p_reg), irq_handlers[0]);
 #endif // NRFX_CHECK(NRFX_PRS_ENABLED)
 
     if (!NRFX_TWIS_ASSUME_INIT_AFTER_RESET_ONLY)
@@ -518,7 +519,7 @@ nrfx_err_t nrfx_twis_init(nrfx_twis_t const *        p_instance,
     /* Peripheral interrupt configure
      * (note - interrupts still needs to be configured in INTEN register.
      * This is done in enable function) */
-    NVIC_SetVector(nrfx_get_irq_number(p_reg), irq_handlers[0]);
+    
     NRFX_IRQ_PRIORITY_SET(nrfx_get_irq_number(p_reg),
                           p_config->interrupt_priority);
     NRFX_IRQ_ENABLE(nrfx_get_irq_number(p_reg));

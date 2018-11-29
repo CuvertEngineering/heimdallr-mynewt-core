@@ -375,14 +375,14 @@ syscfg.defs:
 # enabled (the bsp should set one of these clock sources).
     XTAL_32768:
         description: 'External 32k oscillator LF clock source.'
-        value: 0
+        value: 1
         restrictions:
             - "!XTAL_32768_SYNTH"
             - "!XTAL_RC"
 
     XTAL_RC:
         description: 'internal RC LF clock source'
-        value: 1
+        value: 0
         restrictions:
             - "!XTAL_32768_SYNTH"
             - "!XTAL_32768"

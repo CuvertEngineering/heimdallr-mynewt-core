@@ -150,7 +150,7 @@ task1_handler(void *arg)
     struct image_version ver;
 
     /* Set the led pin for the E407 devboard */
-    g_led_pin = LED_BLINK_PIN;
+    g_led_pin = 31;
     hal_gpio_init_out(g_led_pin, 1);
 
     if (imgr_my_version(&ver) == 0) {

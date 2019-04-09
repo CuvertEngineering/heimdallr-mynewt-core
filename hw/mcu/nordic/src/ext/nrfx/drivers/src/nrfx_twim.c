@@ -507,6 +507,17 @@ nrfx_err_t nrfx_twim_rx(nrfx_twim_t const * p_instance,
     return nrfx_twim_xfer(p_instance, &xfer, 0);
 }
 
+nrfx_err_t nrfx_twim_txrx(nrfx_twim_t const * p_instance,
+                        uint8_t             address,
+                        uint8_t *           p_data_tx,
+                        uint8_t *           p_data_rx,
+                        size_t              length_tx,
+                        size_t              length_rx)
+{
+    nrfx_twim_xfer_desc_t xfer = NRFX_TWIM_XFER_DESC_TXRX(address, p_data_tx, length_tx, p_data_rx, length_rx);
+    return nrfx_twim_xfer(p_instance, &xfer, 0);
+}
+
 uint32_t nrfx_twim_start_task_get(nrfx_twim_t const * p_instance,
                                   nrfx_twim_xfer_type_t xfer_type)
 {

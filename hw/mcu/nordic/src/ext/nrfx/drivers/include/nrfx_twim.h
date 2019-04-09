@@ -295,6 +295,13 @@ nrfx_err_t nrfx_twim_rx(nrfx_twim_t const * p_instance,
                         uint8_t *           p_data,
                         size_t              length);
 
+
+nrfx_err_t nrfx_twim_txrx(nrfx_twim_t const * p_instance,
+                        uint8_t             address,
+                        uint8_t *           p_data_tx,
+                        uint8_t *           p_data_rx,
+                        size_t              length_tx,
+                        size_t              length_rx);
 /**
  * @brief Function for preparing a TWI transfer.
  *

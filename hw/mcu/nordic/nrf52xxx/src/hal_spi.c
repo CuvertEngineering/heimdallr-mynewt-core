@@ -46,7 +46,11 @@ typedef void (*nrf52_spi_irq_handler_t)(void);
  */
 
 /* The maximum number of SPI interfaces we will allow */
+#ifdef NRF52840_XXAA
+#define NRF52_HAL_SPI_MAX (4)
+#else
 #define NRF52_HAL_SPI_MAX (3)
+#endif
 
 /* Used to disable all interrupts */
 #define NRF_SPI_IRQ_DISABLE_ALL 0xFFFFFFFF
@@ -100,6 +104,9 @@ struct nrf52_hal_spi nrf52_hal_spi1;
 #if MYNEWT_VAL(SPI_2_MASTER)  || MYNEWT_VAL(SPI_2_SLAVE)
 struct nrf52_hal_spi nrf52_hal_spi2;
 #endif
+#if MYNEWT_VAL(SPI_3_MASTER)
+struct nrf52_hal_spi nrf52_hal_spi3;
+#endif
 
 static const struct nrf52_hal_spi *nrf52_hal_spis[NRF52_HAL_SPI_MAX] = {
 #if MYNEWT_VAL(SPI_0_MASTER) || MYNEWT_VAL(SPI_0_SLAVE)
@@ -117,6 +124,13 @@ static const struct nrf52_hal_spi *nrf52_hal_spis[NRF52_HAL_SPI_MAX] = {
 #else
     NULL,
 #endif
+#ifdef NRF52840_XXAA
+#if MYNEWT_VAL(SPI_3_MASTER)
+    &nrf52_hal_spi3,
+#else
+    NULL,
+#endif
+#endif
 };
 
 #define NRF52_HAL_SPI_RESOLVE(__n, __v)                     \
@@ -130,7 +144,7 @@ static const struct nrf52_hal_spi *nrf52_hal_spis[NRF52_HAL_SPI_MAX] = {
         goto err;                                           \
     }
 
-#if (MYNEWT_VAL(SPI_0_MASTER) || MYNEWT_VAL(SPI_1_MASTER) || MYNEWT_VAL(SPI_2_MASTER))
+#if (MYNEWT_VAL(SPI_0_MASTER) || MYNEWT_VAL(SPI_1_MASTER) || MYNEWT_VAL(SPI_2_MASTER)|| MYNEWT_VAL(SPI_3_MASTER))
 static void
 nrf52_irqm_handler(struct nrf52_hal_spi *spi)
 {
@@ -303,6 +317,15 @@ nrf52_spi2_irq_handler(void)
 }
 #endif
 
+#if MYNEWT_VAL(SPI_3_MASTER)
+void
+nrf52_spi3_irq_handler(void)
+{
+    os_trace_isr_enter();
+    nrf52_irqm_handler(&nrf52_hal_spi3);
+    os_trace_isr_exit();
+}
+#endif
 static void
 hal_spi_stop_transfer(NRF_SPIM_Type *spim)
 {
@@ -383,6 +406,9 @@ hal_spi_config_master(struct nrf52_hal_spi *spi,
             break;
         case 8000:
             frequency = SPIM_FREQUENCY_FREQUENCY_M8;
+            break;
+        case 32000:
+            frequency = SPIM_FREQUENCY_FREQUENCY_M32;
             break;
         default:
             frequency = 0;
@@ -645,6 +671,14 @@ hal_spi_init(int spi_num, void *cfg, uint8_t spi_type)
 #else
         goto err;
 #endif
+    } else if(spi_num == 3) {
+#if MYNEWT_VAL(SPI_3_MASTER)
+            spi->irq_num = SPIM3_IRQn;
+            irq_handler = nrf52_spi3_irq_handler;
+            spi->nhs_spi.spim = NRF_SPIM3;
+#else
+        assert(0);
+#endif 
     } else {
         goto err;
     }
@@ -721,8 +755,10 @@ hal_spi_enable(int spi_num)
     struct nrf52_hal_spi *spi;
 
     NRF52_HAL_SPI_RESOLVE(spi_num, spi);
-
-    if (spi->spi_type  == HAL_SPI_TYPE_MASTER) {
+    if (spi_num == 3) {
+        nrf_spi = (NRF_SPI_Type *)spi->nhs_spi.spim;
+        nrf_spi->ENABLE = (SPIM_ENABLE_ENABLE_Enabled << SPIM_ENABLE_ENABLE_Pos);
+    } else if (spi->spi_type  == HAL_SPI_TYPE_MASTER) {
         /* For now, enable this in normal SPI mode (not spim) */
         nrf_spi = (NRF_SPI_Type *)spi->nhs_spi.spim;
         nrf_spi->ENABLE = (SPI_ENABLE_ENABLE_Enabled << SPI_ENABLE_ENABLE_Pos);

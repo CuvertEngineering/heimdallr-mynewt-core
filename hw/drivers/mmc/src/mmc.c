@@ -63,18 +63,39 @@
 
 #define BLOCK_LEN           (512)
 
+#define SD_OK                (0)
+#define SD_CARD_ERROR        (-1)
+#define SD_READ_ERROR        (-2)
+#define SD_WRITE_ERROR       (-3)
+#define SD_TIMEOUT           (-4)
+#define SD_PARAM_ERROR       (-5)
+#define SD_CRC_ERROR         (-6)
+#define SD_DEVICE_ERROR      (-7)
+#define SD_RESPONSE_ERROR    (-8)
+#define SD_VOLTAGE_ERROR     (-9)
+#define SD_INVALID_COMMAND   (-10)
+#define SD_ERASE_ERROR       (-11)
+#define SD_ADDR_ERROR        (-12)
+#define ACMD23              (0x80 + 23)    /* SEND_OP_COND (SDC) */
 static uint8_t g_block_buf[BLOCK_LEN];
 // the maximum size of SD transaction is
 // write_cmd_byte + BLOCK_LEN + CRC1 + CRC2 + STATUS
 static uint8_t g_rx_buf[BLOCK_LEN+4];
 static uint8_t g_tx_buf[BLOCK_LEN+4];
-
-static struct hal_spi_settings mmc_settings = {
+static bool sd_wait_ready(uint8_t spi_num, uint8_t token);
+static struct hal_spi_settings mmc_settings_init = {
     .data_order = HAL_SPI_MSB_FIRST,
     .data_mode  = HAL_SPI_MODE0,
     /* XXX: MMC initialization accepts clocks in the range 100-400KHz */
     /* TODO: switch to high-speed aka 25MHz after initialization. */
     .baudrate   = 8000,
+    .word_size  = HAL_SPI_WORD_SIZE_8BIT,
+};
+
+static struct hal_spi_settings mmc_settings_final = {
+    .data_order = HAL_SPI_MSB_FIRST,
+    .data_mode  = HAL_SPI_MODE0,
+    .baudrate   = 16000,
     .word_size  = HAL_SPI_WORD_SIZE_8BIT,
 };
 
@@ -156,6 +177,7 @@ send_mmc_cmd(struct mmc_cfg *mmc, uint8_t cmd, uint32_t payload)
         /* TODO: refactor recursion? */
         /* TODO: error checking */
         send_mmc_cmd(mmc, CMD55, 0);
+        sd_wait_ready(mmc->spi_num, 0xFF);
     }
 
     /* 4.7.2: Command Format */
@@ -218,7 +240,7 @@ mmc_init(int spi_num, void *spi_cfg, int ss_pin)
     mmc->spi_num = spi_num;
     mmc->ss_pin = ss_pin;
     mmc->spi_cfg = spi_cfg;
-    mmc->settings = &mmc_settings;
+    mmc->settings = &mmc_settings_init;
 
     hal_gpio_init_out(mmc->ss_pin, 1);
 
@@ -244,13 +266,13 @@ mmc_init(int spi_num, void *spi_cfg, int ss_pin)
     /* give 10ms for VDD rampup */
     os_time_delay(OS_TICKS_PER_SEC / 100);
 
-    hal_gpio_write(mmc->ss_pin, 0);
+    hal_gpio_write(mmc->ss_pin, 1);
 
     /* send the required >= 74 clock cycles */
-    for (i = 0; i < 74; i++) {
-        sd_spi_single(mmc->spi_num, 0xff);
-    }
-
+    memset(g_tx_buf, 0xFF,74);
+    sd_spi_multi(mmc->spi_num,74);
+    hal_gpio_write(mmc->ss_pin, 0);
+    sd_spi_single(mmc->spi_num,0xff);
     /* put card in idle state */
     status = send_mmc_cmd(mmc, CMD0, 0);
 
@@ -370,6 +392,18 @@ mmc_init(int spi_num, void *spi_cfg, int ss_pin)
     } else {
         rc = error_by_response(status);
     }
+    hal_spi_disable(mmc->spi_num);
+    mmc->settings = &mmc_settings_final;
+    rc = hal_spi_init(mmc->spi_num, mmc->spi_cfg, HAL_SPI_TYPE_MASTER);
+    if (rc != 0) {
+        console_printf("Issue SD re-init\n");
+    }
+    hal_spi_set_txrx_cb(mmc->spi_num, &spi_cb, NULL);
+    rc = hal_spi_config(mmc->spi_num, mmc->settings);
+    if (rc != 0) {
+        console_printf("Issue SD re-config\n");
+    }
+    hal_spi_enable(mmc->spi_num);
 
 out:
     hal_gpio_write(mmc->ss_pin, 1);
@@ -397,121 +431,6 @@ wait_busy(struct mmc_cfg *mmc)
     return res;
 }
 
-// /**
-//  * @return 0 on success, non-zero on failure
-//  */
-// int
-// mmc_read(uint8_t mmc_id, uint32_t addr, void *buf, uint32_t len)
-// {
-//     uint8_t cmd;
-//     uint8_t res;
-//     int rc;
-//     uint32_t n;
-//     size_t block_len;
-//     size_t block_count;
-//     os_time_t timeout;
-//     uint32_t block_addr;
-//     size_t offset;
-//     size_t index;
-//     size_t amount;
-//     struct mmc_cfg *mmc;
-
-//     mmc = mmc_cfg_dev(mmc_id);
-//     if (mmc == NULL) {
-//         return (MMC_DEVICE_ERROR);
-//     }
-
-//     rc = MMC_OK;
-
-//     block_len = (len + BLOCK_LEN - 1) & ~(BLOCK_LEN - 1);
-//     block_count = block_len / BLOCK_LEN;
-//     block_addr = addr / BLOCK_LEN;
-//     offset = addr - (block_addr * BLOCK_LEN);
-
-//     hal_gpio_write(mmc->ss_pin, 0);
-
-//     cmd = (block_count == 1) ? CMD17 : CMD18;
-//     res = send_mmc_cmd(mmc, cmd, block_addr);
-//     if (res) {
-//         rc = error_by_response(res);
-//         goto out;
-//     }
-
-//     /**
-//      * 7.3.3 Control tokens
-//      *   Wait up to 200ms for control token.
-//      */
-//     timeout = os_time_get() + OS_TICKS_PER_SEC / 5;
-//     do {
-//         res = hal_spi_tx_val(mmc->spi_num, 0xff);
-//         if (res != 0xFF) break;
-//         os_time_delay(OS_TICKS_PER_SEC / 1000);
-//     } while (os_time_get() < timeout);
-
-//     /**
-//      * 7.3.3.2 Start Block Tokens and Stop Tran Token
-//      */
-//     if (res != START_BLOCK) {
-//         rc = MMC_TIMEOUT;
-//         goto out;
-//     }
-
-//     index = 0;
-//     while (block_count--) {
-//         for (n = 0; n < BLOCK_LEN; n++) {
-//             g_block_buf[n] = hal_spi_tx_val(mmc->spi_num, 0xff);
-//         }
-
-//         /* TODO: CRC-16 not used here but would be cool to have */
-//         hal_spi_tx_val(mmc->spi_num, 0xff);
-//         hal_spi_tx_val(mmc->spi_num, 0xff);
-
-//         amount = MIN(BLOCK_LEN - offset, len);
-
-//         memcpy(((uint8_t *)buf + index), &g_block_buf[offset], amount);
-
-//         offset = 0;
-//         len -= amount;
-//         index += amount;
-//     }
-
-//     if (cmd == CMD18) {
-//         send_mmc_cmd(mmc, CMD12, 0);
-//         wait_busy(mmc);
-//     }
-
-// out:
-//     hal_gpio_write(mmc->ss_pin, 1);
-//     return (rc);
-// }
-#define R_IDLE              (0x01)
-#define R_ERASE_RESET       (0x02)
-#define R_ILLEGAL_COMMAND   (0x04)
-#define R_CRC_ERROR         (0x08)
-#define R_ERASE_ERROR       (0x10)
-#define R_ADDR_ERROR        (0x20)
-#define R_PARAM_ERROR       (0x40)
-
-#define START_BLOCK         (0xFE)
-#define START_BLOCK_MULTI   (0xFC)
-#define STOP_TRAN_MULTI     (0xFD)
-
-#define BLOCK_LEN           (512)
-
-#define SD_OK                (0)
-#define SD_CARD_ERROR        (-1)
-#define SD_READ_ERROR        (-2)
-#define SD_WRITE_ERROR       (-3)
-#define SD_TIMEOUT           (-4)
-#define SD_PARAM_ERROR       (-5)
-#define SD_CRC_ERROR         (-6)
-#define SD_DEVICE_ERROR      (-7)
-#define SD_RESPONSE_ERROR    (-8)
-#define SD_VOLTAGE_ERROR     (-9)
-#define SD_INVALID_COMMAND   (-10)
-#define SD_ERASE_ERROR       (-11)
-#define SD_ADDR_ERROR        (-12)
-#define ACMD23              (0x80 + 23)    /* SEND_OP_COND (SDC) */
 
 static bool
 sd_wait_ready(uint8_t spi_num, uint8_t token)
@@ -600,18 +519,19 @@ int mmc_read(uint8_t mmc_id, uint32_t addr, void *buf, uint32_t len)
             rc = -1;
             goto finally;
         }
-        
+        memset(g_tx_buf, 0xff, BLOCK_LEN+2);
+        sd_spi_multi(mmc->spi_num,BLOCK_LEN+2);
         // read in a block
-        for (int n = 0; n < BLOCK_LEN; n++) {
-            g_block_buf[n] = sd_spi_single(mmc->spi_num, 0xff);
-        }
+        // for (int n = 0; n < BLOCK_LEN; n++) {
+        //     g_block_buf[n] = sd_spi_single(mmc->spi_num, 0xff);
+        // }
 
-        // @todo: implement crc
-        sd_spi_single(mmc->spi_num, 0xff);
-        sd_spi_single(mmc->spi_num, 0xff);
+        // // @todo: implement crc
+        // sd_spi_single(mmc->spi_num, 0xff);
+        // sd_spi_single(mmc->spi_num, 0xff);
 
         amount = MIN(BLOCK_LEN - offset, len);
-        memcpy(wrt, g_block_buf+offset, amount);
+        memcpy(wrt, g_rx_buf+offset, amount);
 
         offset = 0;
         len -= amount;
@@ -627,145 +547,7 @@ int mmc_read(uint8_t mmc_id, uint32_t addr, void *buf, uint32_t len)
     hal_gpio_write(mmc->ss_pin, 1);
     return rc;
 }
-/**
- * @return 0 on success, non-zero on failure
- */
-// int
-// mmc_write(uint8_t mmc_id, uint32_t addr, const void *buf, uint32_t len)
-// {
-//     uint8_t cmd;
-//     uint8_t res;
-//     uint32_t n;
-//     size_t block_len;
-//     size_t block_count;
-//     os_time_t timeout;
-//     uint32_t block_addr;
-//     size_t offset;
-//     size_t index;
-//     size_t amount;
-//     int rc;
-//     struct mmc_cfg *mmc;
 
-//     mmc = mmc_cfg_dev(mmc_id);
-//     if (mmc == NULL) {
-//         return (MMC_DEVICE_ERROR);
-//     }
-
-//     block_len = (len + BLOCK_LEN - 1) & ~(BLOCK_LEN - 1);
-//     block_count = block_len / BLOCK_LEN;
-//     block_addr = addr / BLOCK_LEN;
-//     offset = addr - (block_addr * BLOCK_LEN);
-
-//     hal_gpio_write(mmc->ss_pin, 0);
-
-//     /**
-//      * This code ensures that if the requested address doesn't align with the
-//      * beginning address of a sector, the initial bytes are first read to the
-//      * buffer to be then written later.
-//      *
-//      * NOTE: this code will never run when using a FS that is sector addressed
-//      * like FAT (offset is always 0).
-//      */
-//     if (offset) {
-//         res = send_mmc_cmd(mmc, CMD17, block_addr);
-//         if (res != 0) {
-//             rc = error_by_response(res);
-//             goto out;
-//         }
-
-//         timeout = os_time_get() + OS_TICKS_PER_SEC / 5;
-//         do {
-//             res = hal_spi_tx_val(mmc->spi_num, 0xff);
-//             if (res != 0xff) break;
-//             os_time_delay(OS_TICKS_PER_SEC / 20);
-//         } while (os_time_get() < timeout);
-
-//         if (res != START_BLOCK) {
-//             rc = MMC_CARD_ERROR;
-//             goto out;
-//         }
-
-//         for (n = 0; n < BLOCK_LEN; n++) {
-//             g_block_buf[n] = hal_spi_tx_val(mmc->spi_num, 0xff);
-//         }
-
-//         hal_spi_tx_val(mmc->spi_num, 0xff);
-//         hal_spi_tx_val(mmc->spi_num, 0xff);
-//     }
-
-//     /* now start write */
-
-//     cmd = (block_count == 1) ? CMD24 : CMD25;
-//     res = send_mmc_cmd(mmc, cmd, block_addr);
-//     if (res) {
-//         rc = error_by_response(res);
-//         goto out;
-//     }
-
-//     index = 0;
-//     while (block_count--) {
-//         /**
-//          * 7.3.3.2 Start Block Tokens and Stop Tran Token
-//          */
-//         if (cmd == CMD24) {
-//             hal_spi_tx_val(mmc->spi_num, START_BLOCK);
-//         } else {
-//             hal_spi_tx_val(mmc->spi_num, START_BLOCK_TOKEN);
-//         }
-
-//         amount = MIN(BLOCK_LEN - offset, len);
-//         memcpy(&g_block_buf[offset], ((uint8_t *)buf + index), amount);
-
-//         for (n = 0; n < BLOCK_LEN; n++) {
-//             hal_spi_tx_val(mmc->spi_num, g_block_buf[n]);
-//         }
-
-//         /* CRC */
-//         hal_spi_tx_val(mmc->spi_num, 0xff);
-//         hal_spi_tx_val(mmc->spi_num, 0xff);
-
-//         /**
-//          * 7.3.3.1 Data Response Token
-//          */
-//         res = hal_spi_tx_val(mmc->spi_num, 0xff);
-//         if ((res & 0x1f) != 0x05) {
-//             break;
-//         }
-
-//         if (cmd == CMD25) {
-//             wait_busy(mmc);
-//         }
-
-//         offset = 0;
-//         len -= amount;
-//         index += amount;
-//     }
-
-//     if (cmd == CMD25) {
-//         hal_spi_tx_val(mmc->spi_num, STOP_TRAN_TOKEN);
-//         wait_busy(mmc);
-//     }
-
-//     res &= 0x1f;
-//     switch (res) {
-//         case 0x05:
-//             rc = MMC_OK;
-//             break;
-//         case 0x0b:
-//             rc = MMC_CRC_ERROR;
-//             break;
-//         case 0x0d:  /* passthrough */
-//         default:
-//             rc = MMC_WRITE_ERROR;
-//     }
-
-//     wait_busy(mmc);
-
-// out:
-//     hal_gpio_write(mmc->ss_pin, 1);
-//     return (rc);
-// }
-/* R1 response status */
 
 int mmc_write(uint8_t mmc_id, uint32_t addr, const void *buf, uint32_t len)
 {
@@ -785,7 +567,7 @@ int mmc_write(uint8_t mmc_id, uint32_t addr, const void *buf, uint32_t len)
     size_t index = 0;
     size_t amount;
     uint8_t cmd = (block_count == 1) ? CMD24 : CMD25;
-    uint8_t tok = (block_count == 1) ? START_BLOCK : START_BLOCK_MULTI;
+    uint8_t tok = (block_count == 1) ? START_BLOCK : START_BLOCK_TOKEN;
 
     // @todo: if using with non sector addressed fs handle offset
     assert(offset == 0 && "SD driver does not handle offset");
@@ -805,7 +587,7 @@ int mmc_write(uint8_t mmc_id, uint32_t addr, const void *buf, uint32_t len)
     
     while (block_count--) {
         //  7.3.3.2 Write Start Block Token
-        sd_spi_single(mmc->spi_num, tok);
+        // sd_spi_single(mmc->spi_num, tok);
 
         // write a single block of data
         amount = MIN(BLOCK_LEN - offset, len);
@@ -813,14 +595,17 @@ int mmc_write(uint8_t mmc_id, uint32_t addr, const void *buf, uint32_t len)
         // for (int n = 0; n < BLOCK_LEN; n++) {
         //     hal_spi_tx_val(mmc->spi_num, ((uint8_t *)buf + index)[n]);
         // }
-        hal_spi_txrx_noblock(mmc->spi_num, ((uint8_t *)buf + index), NULL, BLOCK_LEN);
-        os_sem_pend(&spi_sem,OS_TIMEOUT_NEVER);
+        memset(g_tx_buf, 0xff, BLOCK_LEN+4);
+        g_tx_buf[0] = tok;
+        memcpy(g_tx_buf+1, (buf+index), BLOCK_LEN);
+        sd_spi_multi(mmc->spi_num,BLOCK_LEN+4);
+        status = g_rx_buf[BLOCK_LEN+3];
         //hal_spi_txrx(mmc->spi_num, ((uint8_t *)buf + index), g_block_buf, BLOCK_LEN);
         
 
         // @todo: implement crc
-        sd_spi_single(mmc->spi_num, 0xff);
-        sd_spi_single(mmc->spi_num, 0xff);
+        // sd_spi_single(mmc->spi_num, 0xff);
+        // sd_spi_single(mmc->spi_num, 0xff);
 
         /**
          * @todo: handle write error properly
@@ -830,7 +615,7 @@ int mmc_write(uint8_t mmc_id, uint32_t addr, const void *buf, uint32_t len)
          * (SEND_STATUS) in order to get the cause of the write problem. ACMD22 can be used to find the
          * number of well written write blocks. 
          */
-        status = sd_spi_single(mmc->spi_num, 0xff);
+        // status = sd_spi_single(mmc->spi_num, 0xff);
         // console_printf("SD: write status %d at index %d\n", status, index);
         res = sd_write_result(status);
         if (res != SD_OK) {
@@ -852,7 +637,7 @@ int mmc_write(uint8_t mmc_id, uint32_t addr, const void *buf, uint32_t len)
 
     // 7.3.3.2 complete transaction for multiblock
     if (cmd == CMD25) {
-        uint8_t stop = sd_spi_single(mmc->spi_num, STOP_TRAN_MULTI);
+        uint8_t stop = sd_spi_single(mmc->spi_num, STOP_TRAN_TOKEN);
         sd_spi_single(mmc->spi_num, 0xff); // stuff byte per ChaN
         bool ready = 0;//sd_wait_ready(mmc->spi_num, 0xff);
         // console_printf("CMD25 STOP %x ready %d\n", stop, ready);
